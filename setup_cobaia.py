@@ -19,7 +19,7 @@ def buscar_dados_pokemon(nome):
 """
 
     # Teste unitário (deve falhar pois a API retornará erro HTTP 404)
-    test_code = """from calculadora import buscar_dados_pokemon
+    test_code = """from pokemon import buscar_dados_pokemon
 
 def test_buscar_dados_pokemon():
     dados = buscar_dados_pokemon("pikachu")
@@ -27,10 +27,10 @@ def test_buscar_dados_pokemon():
     assert dados["name"] == "pikachu"
 """
 
-    with open(os.path.join(pasta_cobaia, "calculadora.py"), "w", encoding="utf-8") as f:
+    with open(os.path.join(pasta_cobaia, "pokemon.py"), "w", encoding="utf-8") as f:
         f.write(calc_code)
         
-    with open(os.path.join(pasta_cobaia, "test_calculadora.py"), "w", encoding="utf-8") as f:
+    with open(os.path.join(pasta_cobaia, "test_pokemon.py"), "w", encoding="utf-8") as f:
         f.write(test_code)
         
     # Inicializa um repositório git para podermos testar o auto-commit
