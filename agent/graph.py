@@ -71,6 +71,7 @@ def analyst_node(state: AgentState) -> dict:
         "Identifique a causa raiz da falha.\n"
         "Use o contexto do código-fonte fornecido para encontrar com exatidão onde o bug está.\n"
         "Indique os arquivos que precisam ser alterados e explique a correção detalhadamente.\n"
+        "MUITO IMPORTANTE: Se o erro envolver HTTP 404, URLs ou APIs externas, defina needs_research=True para validar a URL correta na web.\n"
         "Se for um erro de sistema (ex: falta de dependência, banco offline), marque is_fatal=True."
     ))
     

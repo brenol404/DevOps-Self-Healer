@@ -6,18 +6,25 @@ def criar_projeto_cobaia():
     pasta_cobaia = "projeto_cobaia"
     os.makedirs(pasta_cobaia, exist_ok=True)
     
-    # Módulo com erro intencional
-    calc_code = """def somar(a, b):
-    # Erro: subtraindo em vez de somar
-    return a - b
+    # Módulo com erro intencional que requer pesquisa na documentação de uma API
+    calc_code = """import urllib.request
+import json
+
+def buscar_dados_pokemon(nome):
+    # Erro: Rota inexistente (v99). O correto é 'v2'.
+    url = f"https://pokeapi.co/api/v99/pokemon/{nome}"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req) as response:
+        return json.loads(response.read())
 """
 
-    # Teste unitário (deve falhar)
-    test_code = """from calculadora import somar
+    # Teste unitário (deve falhar pois a API retornará erro HTTP 404)
+    test_code = """from calculadora import buscar_dados_pokemon
 
-def test_somar():
-    # Valida a soma de 2 + 3
-    assert somar(2, 3) == 5
+def test_buscar_dados_pokemon():
+    dados = buscar_dados_pokemon("pikachu")
+    assert dados is not None
+    assert dados["name"] == "pikachu"
 """
 
     with open(os.path.join(pasta_cobaia, "calculadora.py"), "w", encoding="utf-8") as f:
