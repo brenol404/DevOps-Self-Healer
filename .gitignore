@@ -1,0 +1,11 @@
+# Ambientes virtuais e cache
+__pycache__/
+venv/
+env/
+
+# Variáveis de ambiente (MUITO IMPORTANTE NÃO SUBIR A CHAVE)
+.env
+
+# Artefatos de teste gerados localmente (não subir para o GitHub)
+projeto_cobaia/
+relatorio_execucao.md
