@@ -11,6 +11,11 @@ class AgentState(TypedDict):
     # Arquivos para correção
     target_files: List[str]
     
+    # Web Search / RAG
+    needs_research: bool
+    search_queries: List[str]
+    research_data: str
+    
     # Histórico de mudanças (append-only)
     changes_history: Annotated[List[Dict[str, Any]], operator.add]
     

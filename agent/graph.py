@@ -1,4 +1,5 @@
 import os
+import time
 import subprocess
 from langgraph.graph import StateGraph, START, END
 from agent.state import AgentState
@@ -17,9 +18,16 @@ def run_tests_node(state: AgentState) -> dict:
     current_attempt = state.get("current_attempt", 0) + 1
     
     try:
-        # Executa pytest
+        # Identifica o ecossistema para rodar o comando correto
+        if os.path.exists(os.path.join(repo_path, "package.json")):
+            cmd = ["npm", "test"]
+        elif os.path.exists(os.path.join(repo_path, "Makefile")):
+            cmd = ["make", "test"]
+        else:
+            cmd = ["pytest"]
+            
         result = subprocess.run(
-            ["pytest"],
+            cmd,
             cwd=repo_path,
             capture_output=True,
             text=True,
@@ -41,6 +49,8 @@ def run_tests_node(state: AgentState) -> dict:
 
 class AnalystOutput(BaseModel):
     is_fatal: bool = Field(description="True se o erro for puramente de infraestrutura/ambiente e não puder ser corrigido alterando os scripts da pasta.")
+    needs_research: bool = Field(default=False, description="True se o erro envolver HTTP 404, URLs ou APIs externas que precisam de consulta na web.")
+    search_queries: List[str] = Field(default_factory=list, description="Lista de queries para pesquisar na web.")
     target_files: List[str] = Field(description="Lista de arquivos de código fonte que o programador deve modificar para corrigir o erro.")
     analysis: str = Field(description="Explicação técnica do bug e instruções claras para o programador de como corrigir.")
 
@@ -50,11 +60,17 @@ def analyst_node(state: AgentState) -> dict:
     
     repo_path = state.get("repository_path", ".")
     
-    # Lê todos os arquivos .py do diretório para dar contexto ao LLM
+    # Lê arquivos de código do diretório para dar contexto, ignorando pastas pesadas
     code_context = ""
-    for root, _, files in os.walk(repo_path):
+    allowed_extensions = {".py", ".js", ".ts", ".c", ".cpp", ".h", ".java", ".go"}
+    ignored_dirs = {".git", "__pycache__", "node_modules", "venv", ".venv", "env", "build", "dist"}
+    
+    for root, dirs, files in os.walk(repo_path):
+        # Modifica a lista dirs in-place para que o os.walk não entre nas pastas ignoradas
+        dirs[:] = [d for d in dirs if d not in ignored_dirs]
+        
         for file in files:
-            if file.endswith(".py"):
+            if any(file.endswith(ext) for ext in allowed_extensions):
                 file_path = os.path.join(root, file)
                 try:
                     with open(file_path, "r", encoding="utf-8") as f:
@@ -63,7 +79,7 @@ def analyst_node(state: AgentState) -> dict:
                     code_context += f"\n--- Arquivo: {file} (Erro ao ler: {e}) ---\n"
     
     # Inicializa o LLM
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, max_retries=5)
     structured_llm = llm.with_structured_output(AnalystOutput)
     
     sys_msg = SystemMessage(content=(
@@ -71,6 +87,7 @@ def analyst_node(state: AgentState) -> dict:
         "Identifique a causa raiz da falha.\n"
         "Use o contexto do código-fonte fornecido para encontrar com exatidão onde o bug está.\n"
         "Indique os arquivos que precisam ser alterados e explique a correção detalhadamente.\n"
+        "Se a correção exigir alterações em múltiplos arquivos ao mesmo tempo, inclua TODOS ELES na sua lista de arquivos alvo.\n"
         "MUITO IMPORTANTE: Se o erro envolver HTTP 404, URLs ou APIs externas, defina needs_research=True para validar a URL correta na web.\n"
         "Se for um erro de sistema (ex: falta de dependência, banco offline), marque is_fatal=True."
     ))
@@ -84,11 +101,39 @@ def analyst_node(state: AgentState) -> dict:
         
     return {
         "target_files": result.target_files,
+        "needs_research": result.needs_research,
+        "search_queries": result.search_queries,
         "changes_history": [{"analyst_instruction": result.analysis}]
     }
 
+class FileUpdate(BaseModel):
+    file_name: str = Field(description="Nome do arquivo que está sendo corrigido.")
+    updated_code: str = Field(description="O código-fonte completo e corrigido.")
+
+def research_node(state: AgentState) -> dict:
+    """Faz buscas na internet para encontrar documentação oficial."""
+    print("\n[Research] Realizando pesquisa na web para validar APIs/documentação...")
+    queries = state.get("search_queries", [])
+    
+    try:
+        from langchain_community.tools import DuckDuckGoSearchRun
+        search = DuckDuckGoSearchRun()
+    except ImportError:
+        return {"research_data": "ERRO: Instale a biblioteca executando: pip install duckduckgo-search langchain_community"}
+        
+    research_results = ""
+    for q in queries:
+        print(f"  -> Pesquisando: {q}")
+        try:
+            res = search.invoke(q)
+            research_results += f"Resultados para '{q}':\n{res}\n\n"
+        except Exception as e:
+            research_results += f"Falha ao pesquisar '{q}': {e}\n\n"
+            
+    return {"research_data": research_results, "needs_research": False}
+
 class ProgrammerOutput(BaseModel):
-    updated_code: str = Field(description="O código-fonte completo e corrigido, pronto para ser salvo. Retorne apenas código válido.")
+    file_updates: List[FileUpdate] = Field(description="Lista de arquivos com seus respectivos códigos atualizados.")
 
 def programmer_node(state: AgentState) -> dict:
     print("\n[Programmer] Escrevendo a correção no código...")
@@ -101,48 +146,70 @@ def programmer_node(state: AgentState) -> dict:
     if not target_files:
         return {"changes_history": [{"programmer_action": "Nenhum arquivo alvo definido pelo analista."}]}
         
-    # Foca no primeiro arquivo alvo
-    target_file = target_files[0]
-    file_path = os.path.join(repo_path, target_file)
-    
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            current_code = f.read()
-    except Exception as e:
-        return {"changes_history": [{"programmer_action": f"Erro ao ler {target_file}: {e}"}]}
+    # Lê TODOS os arquivos alvos definidos pelo Analista
+    current_codes = ""
+    for file in target_files:
+        file_path = os.path.join(repo_path, file)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                current_codes += f"\n--- {file} ---\n{f.read()}\n"
+        except Exception as e:
+            return {"changes_history": [{"programmer_action": f"Erro ao ler {file}: {e}"}]}
         
     # Gera o código corrigido via LLM
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, max_retries=5)
     structured_llm = llm.with_structured_output(ProgrammerOutput)
     
     sys_msg = SystemMessage(content=(
-        "Você é um Engenheiro de Software Especialista. Reescreva o código fornecido para corrigir os bugs apontados na instrução."
+        "Você é um Engenheiro de Software Especialista. Reescreva os códigos fornecidos para corrigir os bugs apontados na instrução.\n"
+        "Se a instrução pedir para alterar múltiplos arquivos, garanta que você retornou o código atualizado e completo para CADA UM dos arquivos afetados."
     ))
-    human_msg = HumanMessage(content=f"Código atual:\n{current_code}\n\nInstrução:\n{analyst_instruction}")
+    
+    human_msg_content = f"Códigos atuais:\n{current_codes}\n\nInstrução do Analista:\n{analyst_instruction}"
+    research_data = state.get("research_data", "")
+    if research_data:
+        human_msg_content += f"\n\nContexto extraído da Web (Use essas informações para corrigir as URLs/APIs):\n{research_data}"
+        
+    human_msg = HumanMessage(content=human_msg_content)
     
     result = structured_llm.invoke([sys_msg, human_msg])
     
     # Human-in-the-loop: Aprovação antes de salvar
-    print(f"\n[Aprovação Necessária] Código sugerido para {target_file}:\n")
-    print(result.updated_code)
+    print("\n[Aprovação Necessária] Códigos sugeridos:\n")
+    for update in result.file_updates:
+        print(f"--- {update.file_name} ---")
+        print(update.updated_code)
     print("-" * 50)
     
-    aprovacao = input("Aprovar esta alteração? (Y/N): ").strip().upper()
-    if aprovacao != 'Y':
-        print("Alteração rejeitada pelo usuário.")
-        return {"status": "fatal", "changes_history": [{"programmer_action": "Alteração rejeitada pelo usuário humano."}]}
+    # Verifica se está rodando em ambiente CI/CD (GitHub Actions, etc)
+    is_ci = os.getenv("CI") == "true"
     
-    # Sobrescreve o arquivo com a correção
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(result.updated_code)
+    if not is_ci:
+        aprovacao = input("Aprovar estas alterações? (Y/N): ").strip().upper()
+        if aprovacao != 'Y':
+            print("Alteração rejeitada pelo usuário.")
+            return {"status": "fatal", "changes_history": [{"programmer_action": "Alteração rejeitada pelo usuário humano."}]}
+    else:
+        print("🤖 Modo CI detectado! Pulando aprovação humana e aplicando correções automaticamente...")
+
+    # Sobrescreve os arquivos com a correção
+    for update in result.file_updates:
+        file_path = os.path.join(repo_path, update.file_name)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(update.updated_code)
+        print(f"Arquivo {update.file_name} atualizado com sucesso.")
         
-    print(f"Arquivo {target_file} atualizado com sucesso.")
-    return {"changes_history": [{"programmer_action": f"Arquivo {target_file} corrigido."}]}
+    nomes_arquivos = ", ".join([u.file_name for u in result.file_updates])
+    return {"changes_history": [{"programmer_action": f"Arquivos corrigidos: {nomes_arquivos}"}]}
 
 def report_node(state: AgentState) -> dict:
     print("\n[Report] Gerando relatório final da execução...")
     
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+    # Pausa de segurança para evitar erro 429 (Rate Limit) na API gratuita do Gemini
+    print("[Report] Aguardando alguns segundos para respeitar o limite da API...")
+    time.sleep(10)
+    
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0, max_retries=5)
     
     sys_msg = SystemMessage(content=(
         "Você é um assistente de DevOps. Gere um relatório Markdown executivo, "
@@ -194,6 +261,14 @@ def route_test_results(state: AgentState) -> str:
     # Tenta novamente se limite não foi atingido
     return "analyst"
 
+def route_after_analyst(state: AgentState) -> str:
+    """Define se vai direto pro programador ou se pesquisa na web antes."""
+    if state.get("status") == "fatal":
+        return "generate_report"
+    if state.get("needs_research", False):
+        return "research"
+    return "programmer"
+
 def build_self_healer_graph() -> StateGraph:
     """Constrói e compila o grafo do agente."""
     workflow = StateGraph(AgentState)
@@ -201,6 +276,7 @@ def build_self_healer_graph() -> StateGraph:
     # Nós
     workflow.add_node("run_tests", run_tests_node)
     workflow.add_node("analyst", analyst_node)
+    workflow.add_node("research", research_node)
     workflow.add_node("programmer", programmer_node)
     workflow.add_node("generate_report", report_node)
     workflow.add_node("git_commit", git_commit_node)
@@ -208,7 +284,11 @@ def build_self_healer_graph() -> StateGraph:
     # Arestas
     workflow.add_edge(START, "run_tests")
     workflow.add_conditional_edges("run_tests", route_test_results)
-    workflow.add_edge("analyst", "programmer")
+    
+    # Roteamento Inteligente (RAG / Web Search)
+    workflow.add_conditional_edges("analyst", route_after_analyst)
+    workflow.add_edge("research", "programmer")
+    
     workflow.add_edge("programmer", "run_tests")
     workflow.add_edge("generate_report", "git_commit")
     workflow.add_edge("git_commit", END)
