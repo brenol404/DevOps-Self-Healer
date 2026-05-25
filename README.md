@@ -41,16 +41,16 @@ Um agente autônomo baseado em Grafos de Estado (State Graphs) capaz de analisar
 O roadmap inicial foi concluído! O novo foco (Versão 2.0) é voltado para segurança, escalabilidade em grandes repositórios e uso nível Enterprise:
 
 ### Fase 1: Segurança e Qualidade do Código
-- [ ] **Auto-Rollback (Botão de Pânico):** Executar um `git reset --hard` para restaurar o projeto caso o agente esgote as tentativas de teste e não consiga consertar o bug.
-- [ ] **Nó de Code Reviewer:** Inserir um Agente Revisor no LangGraph para analisar se a correção segue princípios de Clean Code/SOLID antes de ser aplicada.
+- [x] **Auto-Rollback (Botão de Pânico):** Executar um `git reset --hard` para restaurar o projeto caso o agente esgote as tentativas de teste e não consiga consertar o bug.
+- [x] **Nó de Code Reviewer:** Inserir um Agente Revisor no LangGraph para analisar se a correção segue princípios de Clean Code/SOLID antes de ser aplicada.
 
 ### Fase 2: Escalonamento e Performance
-- [ ] **Code RAG para Repositórios Massivos:** Resolver o limite de tokens do LLM parando de ler o repositório inteiro e utilizando busca semântica ou AST (Abstract Syntax Tree) para fornecer apenas o contexto estritamente necessário.
-- [ ] **Suporte Multi-Modelo Agnostico:** Tornar o projeto flexível para ler variáveis do `.env` e rodar em qualquer LLM (OpenAI, Anthropic, Gemini) ou até modelos rodando 100% locais (Ollama).
+- [x] **Code RAG para Repositórios Massivos:** Resolver o limite de tokens do LLM parando de ler o repositório inteiro e utilizando busca semântica ou AST (Abstract Syntax Tree) para fornecer apenas o contexto estritamente necessário.
+- [x] **Suporte Multi-Modelo Agnostico:** Tornar o projeto flexível para ler variáveis do `.env` e rodar em qualquer LLM (OpenAI, Anthropic, Gemini) ou até modelos rodando 100% locais (Ollama).
 
 ### Fase 3: Proatividade e Integração de Equipe
-- [ ] **Geração Proativa de Testes:** Capacitar o Agente a não apenas consertar o código, mas escrever novos casos de teste (`test_*.py`) garantindo que a mesma falha nunca se repita.
-- [ ] **Notificações Webhook (Slack/Discord):** Configurar o Agente para disparar uma mensagem no chat da equipe de desenvolvimento após consertar um erro via CI/CD.
+- [x] **Geração Proativa de Testes:** Capacitar o Agente a não apenas consertar o código, mas escrever novos casos de teste (`test_*.py`) garantindo que a mesma falha nunca se repita.
+- [x] **Notificações Webhook (Slack/Discord):** Configurar o Agente para disparar uma mensagem no chat da equipe de desenvolvimento após consertar um erro via CI/CD.
 
 ## Licença
 Distribuído sob a licença MIT.

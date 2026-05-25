@@ -16,12 +16,19 @@ class AgentState(TypedDict):
     search_queries: List[str]
     research_data: str
     
+    # Code Review e Aprovação
+    proposed_updates: List[Dict[str, str]]
+    reviewer_feedback: str
+    review_approved: bool
+    proactive_tests_generated: bool
+
     # Histórico de mudanças (append-only)
     changes_history: Annotated[List[Dict[str, Any]], operator.add]
     
     # Controle de tentativas
     current_attempt: int
     max_attempts: int
+    review_attempts: int
     
     # Status: pending, passed, failed, fatal
     status: str
