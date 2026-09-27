@@ -1,76 +1,130 @@
 # DevOps Self-Healer (Agentic AI)
 
-Um agente autônomo baseado em Grafos de Estado (State Graphs) capaz de analisar falhas em testes de integração, ler o código-fonte, propor correções e realizar commits automaticamente utilizando Large Language Models (LLMs).
+[![CI](https://github.com/brenol404/DevOps-Self-Healer/actions/workflows/ci.yml/badge.svg)](https://github.com/brenol404/DevOps-Self-Healer/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## Arquitetura e Stack Tecnológica
-* **Orquestração de Agentes:** LangGraph
-* **Inteligência Artificial:** Google Gemini 2.5 Flash via LangChain
-* **Testes e Validação:** Pytest
-* **Controle de Versão:** Git
-* **Linguagem:** Python 3.12+
+> Autonomous state-graph agent that runs tests, diagnoses failures, proposes fixes and commits — with human approval, automatic rollback and a final report.
 
-## Funcionalidades Atuais
-* **Execução Cíclica de Testes:** Roda suítes de testes isoladas em repositórios alvo.
-* **Injeção de Contexto (Context Retrieval):** Varre a base de código `.py` do projeto e fornece contexto completo para o LLM investigar a raiz do problema.
-* **Geração de Código (Structured Output):** Utiliza Pydantic para forçar o LLM a retornar código Python limpo e pronto para produção, sem conversação desnecessária.
-* **Aprovação Humana (Human-in-the-loop):** Interrompe o fluxo e exige autorização de um engenheiro antes de aplicar qualquer alteração no disco.
-* **Geração de Relatórios:** Produz um relatório Markdown executivo ao final de cada ciclo, detalhando a causa raiz e as ações tomadas.
-* **Auto-Commit:** Integração com Git para criar commits automáticos caso os testes sejam aprovados após a intervenção.
+**Leia em [português](README.pt-BR.md).**
 
-## Como Executar
+> **Evidence:** 11-node LangGraph · **18 tests** · green CI · rollback tested with real git.
 
-1. Clone o repositório.
-2. Instale as dependências requeridas:
+## Contents
+
+- [Highlights](#highlights)
+- [Architecture](#architecture)
+- [Running](#running)
+- [Semantic context via RAG](#semantic-context-via-rag)
+- [Roadmap](#roadmap)
+- [Structure](#structure)
+- [Quality](#quality)
+
+## Highlights
+
+- **State-graph loop**: tests → analyst → programmer → reviewer → apply → QA, with conditional routing and bounded retries.
+- **Selective context (Traceback-RAG)**: instead of dumping the whole repo, the parser extracts only the files in the traceback (±25 lines around each hit) — token-cheap by design.
+- **Multi-model**: `LLM_PROVIDER` picks google / openai / ollama (100% local) via `.env`, no code changes.
+- **Human-in-the-loop**: nothing hits the disk without your `Y` (skipped with `--ci`, no safety net).
+- **Write containment**: LLM-chosen filenames are confined to the repo (`../evil.py` rejected, fail-closed) — validated by tests.
+- **Panic button**: exhausted attempts → `git reset --hard` + `clean -fd`, then a final report.
+- **Proactive QA**: after a green fix, the agent writes regression tests so the bug never returns.
+- **Team notify**: Slack/Discord webhook at the end of each cycle.
+- **Structured output**: Pydantic forces clean production-ready code, no chatter.
+- **Rate-limit aware**: 429 backoff with retries instead of crashing.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    T["run_tests<br/>pytest on target"] --> A["analyst<br/>root cause + files"]
+    A --> R["research<br/>web (optional)"]
+    R --> P["programmer<br/>fix"]
+    P --> RV["reviewer<br/>approve or redo"]
+    RV --> AP["apply_fixes<br/>human approval"]
+    AP --> T
+    T --> QA["qa_engineer<br/>proactive tests"]
+    QA --> T
+    A -.-> RB["auto_rollback<br/>git reset --hard"]
+    RV -.-> RB
+    AP -.-> RB
+    T --> REP["generate_report<br/>markdown"]
+    RB --> REP
+    REP --> GC["git_commit"] --> NT["notify_team<br/>webhook"]
+```
+
+## Running
+
+1. Clone the repository.
+2. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Crie um arquivo `.env` na raiz do projeto e insira sua API Key do Google AI Studio:
-   ```env
-   GEMINI_API_KEY=sua_chave_aqui
-   ```
-
-### Contexto semântico via RAG (opcional)
-
-Por padrão o analyst usa só os arquivos do traceback. Apontando para um
-[hybrid-rag-mcp](https://github.com/brenol404/hybrid-rag-mcp) com o repo-alvo
-indexado, ele recebe também trechos *similares* além do traceback:
-
-```bash
-# terminal 1: servidor RAG com o repo-alvo indexado
-python -m hybrid_rag_mcp --transport http --port 8000
-# (via tool `ingest`, indexe o diretório do repo-alvo)
-
-# terminal 2: healer com RAG ligado
-export RAG_URL=http://127.0.0.1:8000  # + RAG_TOP_K / RAG_TIMEOUT_SEC / RAG_AUTH_TOKEN opcionais
-python main.py
-```
-
-Sem `RAG_URL` (ou com servidor fora do ar), o diagnóstico segue idêntico —
-degradação graciosa, nunca quebra o fluxo.
-4. (Opcional) Rode o script de configuração para criar um projeto de teste com bug intencional:
+3. Create a `.env` file at the root with your key (`GEMINI_API_KEY`, `OPENAI_API_KEY`, or Ollama — see `.env.example`).
+4. (Optional) Scaffold a test project with an intentional bug:
    ```bash
    python setup_cobaia.py
    ```
-5. Inicie o agente (aponta para qualquer repo; `--ci` pula a aprovação humana):
+5. Start the agent (any repo; `--ci` skips human approval):
    ```bash
    python main.py --repo ./meu-projeto --max-attempts 5
    python main.py --repo ./meu-projeto --ci
    ```
 
-## Roadmap e Próximos Passos (V2)
-O roadmap inicial foi concluído! O novo foco (Versão 2.0) é voltado para segurança, escalabilidade em grandes repositórios e uso nível Enterprise:
+## Semantic context via RAG
 
-### Fase 1: Segurança e Qualidade do Código
-- [x] **Auto-Rollback (Botão de Pânico):** Executar um `git reset --hard` para restaurar o projeto caso o agente esgote as tentativas de teste e não consiga consertar o bug.
-- [x] **Nó de Code Reviewer:** Inserir um Agente Revisor no LangGraph para analisar se a correção segue princípios de Clean Code/SOLID antes de ser aplicada.
+By default the analyst only sees traceback files. Pointing at a
+[hybrid-rag-mcp](https://github.com/brenol404/hybrid-rag-mcp) with the target
+repo indexed, it also receives *similar* snippets beyond the traceback:
 
-### Fase 2: Escalonamento e Performance
-- [x] **Recuperação seletiva de contexto (Traceback-RAG):** em vez de ler o repositório inteiro, o parser extrai do traceback só os arquivos afetados (economia de tokens). Busca semântica/AST segue como evolução futura.
-- [x] **Suporte Multi-Modelo Agnostico:** Tornar o projeto flexível para ler variáveis do `.env` e rodar em qualquer LLM (OpenAI, Anthropic, Gemini) ou até modelos rodando 100% locais (Ollama).
+```bash
+# terminal 1: RAG server with the target repo indexed
+python -m hybrid_rag_mcp --transport http --port 8000
+# (via the `ingest` tool, index the target repo directory)
 
-### Fase 3: Proatividade e Integração de Equipe
-- [x] **Geração Proativa de Testes:** Capacitar o Agente a não apenas consertar o código, mas escrever novos casos de teste (`test_*.py`) garantindo que a mesma falha nunca se repita.
-- [x] **Notificações Webhook (Slack/Discord):** Configurar o Agente para disparar uma mensagem no chat da equipe de desenvolvimento após consertar um erro via CI/CD.
+# terminal 2: healer with RAG on
+export RAG_URL=http://127.0.0.1:8000  # + RAG_TOP_K / RAG_TIMEOUT_SEC / RAG_AUTH_TOKEN optional
+python main.py
+```
 
-## Licença
-Distribuído sob a licença MIT.
+Without `RAG_URL` (or with the server down), diagnosis proceeds identically —
+graceful degradation, never breaks the flow.
+
+## Roadmap
+
+Initial roadmap complete. V2 focused on safety, large-repo scale and enterprise use:
+
+### Phase 1: Code safety and quality
+- [x] **Auto-Rollback (panic button):** `git reset --hard` to restore the project when attempts run out.
+- [x] **Reviewer node:** a reviewer agent checks Clean Code/SOLID before anything hits disk.
+
+### Phase 2: Scaling and performance
+- [x] **Selective context retrieval (Traceback-RAG):** regex on the traceback scopes reading to affected files only. Semantic/AST search remains future work.
+- [x] **Agnostic multi-model support:** `.env` picks any LLM (OpenAI, Gemini) or fully local models (Ollama).
+
+### Phase 3: Proactivity and team integration
+- [x] **Proactive test generation:** the agent writes new `test_*.py` cases so the failure never repeats.
+- [x] **Webhook notifications (Slack/Discord):** ping the dev chat after each cycle.
+
+## Structure
+
+```
+.
+├── main.py                 # CLI (--repo, --max-attempts, --ci)
+├── setup_cobaia.py         # scaffolds a buggy demo project
+├── agent/
+│   ├── graph.py            # 11 nodes + conditional routing + guards
+│   ├── rag_client.py       # optional hybrid-rag-mcp client (graceful)
+│   └── state.py            # typed LangGraph state
+└── tests/                  # routing, rollback (real git), write containment, RAG
+```
+
+## Quality
+
+- **18 unit tests** (`pytest`), no LLM/network — routing, rollback with real git, path containment, RAG degradation.
+- CI on every push/PR. Live runs need an LLM key (Gemini free tier works).
+- Decisions that looked good but were cut or corrected are documented in commit history, not hidden.
+
+## License
+
+MIT licensed.
