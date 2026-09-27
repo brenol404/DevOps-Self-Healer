@@ -51,9 +51,10 @@ degradação graciosa, nunca quebra o fluxo.
    ```bash
    python setup_cobaia.py
    ```
-5. Inicie o agente:
+5. Inicie o agente (aponta para qualquer repo; `--ci` pula a aprovação humana):
    ```bash
-   python main.py
+   python main.py --repo ./meu-projeto --max-attempts 5
+   python main.py --repo ./meu-projeto --ci
    ```
 
 ## Roadmap e Próximos Passos (V2)
