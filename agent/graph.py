@@ -10,6 +10,24 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel, Field
 from typing import List
 
+
+def safe_join(repo_path: str, file_name: str) -> str:
+    """Junta caminho confinado ao repositório; rejeita fuga (fail-closed).
+
+    Nomes vêm do LLM: `../evil.py` ou `/tmp/evil.py` escapariam do projeto
+    via `os.path.join`. Aqui só passam relativos contidos no repo.
+    """
+    from pathlib import Path
+
+    if not file_name or not isinstance(file_name, str):
+        raise ValueError(f"nome de arquivo inválido: {file_name!r}")
+    base = Path(repo_path).resolve()
+    target = (base / file_name).resolve()
+    if target == base or base not in target.parents:
+        raise ValueError(f"nome de arquivo fora do repositório: {file_name!r}")
+    return str(target)
+
+
 def safe_invoke(llm_instance, messages, max_retries=3):
     """Invoca o LLM com tratamento automático e reativo para Rate Limits (Erro 429)."""
     tentativas = 0
@@ -344,8 +362,8 @@ def apply_fixes_node(state: AgentState) -> dict:
     # Human-in-the-loop: Aprovação antes de salvar
     print("\n[Aprovação Necessária] Códigos sugeridos pelo Programador e APROVADOS pelo Reviewer:\n")
     for update in updates:
-        print(f"--- {update['file_name']} ---")
-        print(update['updated_code'])
+        print(f"--- {update.get('file_name', '?')} ---")
+        print(update.get("updated_code", ""))
     print("-" * 50)
     
     is_ci = os.getenv("CI") == "true"
@@ -358,12 +376,27 @@ def apply_fixes_node(state: AgentState) -> dict:
     else:
         print("🤖 Modo CI detectado! Pulando aprovação humana e aplicando correções no disco...")
 
+    # Valida TODAS as propostas antes de escrever qualquer uma (fail-closed:
+    # nomes vêm do LLM e update sem chave não deve derrubar com KeyError).
+    planned: list[tuple[str, str, str]] = []
+    try:
+        for update in updates:
+            name = update.get("file_name", "")
+            code = update.get("updated_code", "")
+            if not isinstance(code, str) or not code:
+                raise ValueError(f"conteúdo vazio para {name!r}")
+            planned.append((name, safe_join(repo_path, name), code))
+    except (ValueError, AttributeError) as exc:
+        return {
+            "status": "fatal",
+            "changes_history": [{"apply_action": f"Proposta rejeitada (segurança): {exc}"}],
+        }
+
     # Sobrescreve os arquivos com a correção real
-    for update in updates:
-        file_path = os.path.join(repo_path, update["file_name"])
+    for name, file_path, code in planned:
         with open(file_path, "w", encoding="utf-8") as f:
-            f.write(update["updated_code"])
-        print(f"Arquivo {update['file_name']} salvo no disco com sucesso.")
+            f.write(code)
+        print(f"Arquivo {name} salvo no disco com sucesso.")
         
     nomes_arquivos = ", ".join([u["file_name"] for u in updates])
     # Limpa as propostas em memória pois já foram aplicadas
@@ -397,7 +430,13 @@ def qa_engineer_node(state: AgentState) -> dict:
     
     # Blindagem: Garante que não vamos sobrescrever um arquivo de teste existente
     test_file_name = result.test_name
-    file_path = os.path.join(repo_path, test_file_name)
+    try:
+        file_path = safe_join(repo_path, test_file_name)
+    except ValueError as exc:
+        return {
+            "status": "fatal",
+            "changes_history": [{"qa_action": f"Nome de teste rejeitado (segurança): {exc}"}],
+        }
     
     counter = 1
     while os.path.exists(file_path):
