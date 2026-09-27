@@ -193,6 +193,21 @@ def analyst_node(state: AgentState) -> dict:
         except Exception as e:
             code_context += f"\n--- Arquivo: {f} (Erro ao ler: {e}) ---\n"
     
+    # 4. Contexto semântico opcional (hybrid-rag-mcp): trechos similares além
+    # do traceback (chamadores, padrões parecidos). Sem RAG_URL/servidor, ""
+    # e o diagnóstico segue idêntico (degradação graciosa).
+    try:
+        from agent.rag_client import fetch_rag_context
+
+        rag_context = fetch_rag_context(test_logs)
+    except Exception:
+        rag_context = ""
+    if rag_context:
+        code_context += (
+            "\n\nCONTEXTO SEMÂNTICO ADICIONAL (RAG - trechos similares no repo):\n"
+            f"{rag_context}\n"
+        )
+
     # Inicializa o LLM
     llm = get_llm()
     structured_llm = llm.with_structured_output(AnalystOutput)

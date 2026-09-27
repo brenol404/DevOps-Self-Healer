@@ -22,12 +22,31 @@ Um agente autônomo baseado em Grafos de Estado (State Graphs) capaz de analisar
 1. Clone o repositório.
 2. Instale as dependências requeridas:
    ```bash
-   pip install langgraph langchain-google-genai langchain pydantic pytest python-dotenv
+   pip install -r requirements.txt
    ```
 3. Crie um arquivo `.env` na raiz do projeto e insira sua API Key do Google AI Studio:
    ```env
    GEMINI_API_KEY=sua_chave_aqui
    ```
+
+### Contexto semântico via RAG (opcional)
+
+Por padrão o analyst usa só os arquivos do traceback. Apontando para um
+[hybrid-rag-mcp](https://github.com/brenol404/hybrid-rag-mcp) com o repo-alvo
+indexado, ele recebe também trechos *similares* além do traceback:
+
+```bash
+# terminal 1: servidor RAG com o repo-alvo indexado
+python -m hybrid_rag_mcp --transport http --port 8000
+# (via tool `ingest`, indexe o diretório do repo-alvo)
+
+# terminal 2: healer com RAG ligado
+export RAG_URL=http://127.0.0.1:8000  # + RAG_TOP_K / RAG_TIMEOUT_SEC / RAG_AUTH_TOKEN opcionais
+python main.py
+```
+
+Sem `RAG_URL` (ou com servidor fora do ar), o diagnóstico segue idêntico —
+degradação graciosa, nunca quebra o fluxo.
 4. (Opcional) Rode o script de configuração para criar um projeto de teste com bug intencional:
    ```bash
    python setup_cobaia.py

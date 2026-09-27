@@ -3,6 +3,7 @@
 #   google: langchain-google-genai
 #   openai: langchain-openai
 #   ollama / pesquisa web: langchain-community, duckduckgo-search
+#   contexto semântico via RAG: mcp  (ver README "Contexto semântico (opcional)")
 langgraph>=0.2
 langchain-core>=0.3
 langchain-google-genai>=2.0
