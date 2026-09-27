@@ -45,7 +45,7 @@ O roadmap inicial foi concluído! O novo foco (Versão 2.0) é voltado para segu
 - [x] **Nó de Code Reviewer:** Inserir um Agente Revisor no LangGraph para analisar se a correção segue princípios de Clean Code/SOLID antes de ser aplicada.
 
 ### Fase 2: Escalonamento e Performance
-- [x] **Code RAG para Repositórios Massivos:** Resolver o limite de tokens do LLM parando de ler o repositório inteiro e utilizando busca semântica ou AST (Abstract Syntax Tree) para fornecer apenas o contexto estritamente necessário.
+- [x] **Recuperação seletiva de contexto (Traceback-RAG):** em vez de ler o repositório inteiro, o parser extrai do traceback só os arquivos afetados (economia de tokens). Busca semântica/AST segue como evolução futura.
 - [x] **Suporte Multi-Modelo Agnostico:** Tornar o projeto flexível para ler variáveis do `.env` e rodar em qualquer LLM (OpenAI, Anthropic, Gemini) ou até modelos rodando 100% locais (Ollama).
 
 ### Fase 3: Proatividade e Integração de Equipe

@@ -1,0 +1,11 @@
+# Dependências diretas (pip install -r requirements.txt).
+# Opcionais por provedor LLM / pesquisa (instaladas sob demanda):
+#   google: langchain-google-genai
+#   openai: langchain-openai
+#   ollama / pesquisa web: langchain-community, duckduckgo-search
+langgraph>=0.2
+langchain-core>=0.3
+langchain-google-genai>=2.0
+pydantic>=2.0
+pytest>=8.0
+python-dotenv>=1.0
